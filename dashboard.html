@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FOMT · Fomo Data Dashboard</title>
+<style>
+  :root{--bg:#0b0e14;--card:#151a23;--line:#232a36;--txt:#e6ebf2;--mut:#8b95a7;--acc:#4c8dff;--ok:#26d07c;--sol:#9945ff;--evm:#627eea}
+  *{box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+  body{margin:0;background:var(--bg);color:var(--txt)}
+  header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#0d1119}
+  header h1{font-size:18px;margin:0}
+  header input,header select{background:#1a2130;border:1px solid var(--line);color:var(--txt);padding:8px 10px;border-radius:8px}
+  header button{background:var(--acc);border:0;color:#fff;padding:9px 16px;border-radius:8px;cursor:pointer;font-weight:600}
+  main{padding:20px 24px;max-width:1400px;margin:auto}
+  .notice{background:#1c232e;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--mut)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .card h3{margin:0 0 10px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600}
+  tr:hover td{background:#191f2b}
+  .chip{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .v{color:var(--ok)} .sol{color:var(--sol)} .evm{color:var(--evm)}
+  .clk{color:var(--acc);cursor:pointer;font-weight:600}
+  .addr{font-family:monospace;font-size:11px;word-break:break-all}
+  .tabrow{margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap}
+  .tabrow button{background:#1a2130;border:1px solid var(--line);color:var(--txt);padding:7px 14px;border-radius:8px;cursor:pointer}
+  .tabrow button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+  .err{color:#ff6b6b;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>FOMT · Fomo Data Dashboard</h1>
+    <div class="notice">Data dari <b>self-hosted Fomo API</b> (video: Sumber Fomo asal). Klik KOL utk lihat socials graph (following/followers) + wallet address.</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <span style="font-size:12px;color:var(--mut)">API URL</span>
+    <input id="api" style="width:300px" value="http://43.133.62.181:8788">
+    <span style="font-size:12px;color:var(--mut)">Token</span>
+    <input id="token" type="password" placeholder="Bearer token" style="width:200px">
+    <button onclick="loadAll()">Muat</button>
+  </div>
+</header>
+<main>
+  <div class="tabrow">
+    <button id="tab-leaders" class="on" onclick="showTab('leaders')">Leaderboard</button>
+    <button id="tab-soc" onclick="showTab('soc')">Socials Graph</button>
+    <button id="tab-tokens" onclick="showTab('tokens')">Tokens</button>
+  </div>
+
+  <!-- TAB: LEADERBOARD -->
+  <section id="tab-leaders" class="tab">
+    <div class="card">
+      <h3>Traders Leaderboard (24h) — klik nama utk socials</h3>
+      <div id="leaders"></div>
+    </div>
+  </section>
+
+  <!-- TAB: SOCIALS -->
+  <section id="tab-soc" class="tab" style="display:none">
+    <div class="card" style="margin-bottom:14px">
+      <h3>Pilih KOL (dari leaderboard) utk lihat: siapa dia follow & siapa follow dia</h3>
+      <select id="kol" style="width:100%;padding:8px;background:#1a2130;color:var(--txt);border:1px solid var(--line);border-radius:8px"></select>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>Following (KOL ini follow →)</h3><div id="soc-following"></div></div>
+      <div class="card"><h3>Followers (→ follow KOL ini)</h3><div id="soc-followers"></div></div>
+    </div>
+  </section>
+
+  <!-- TAB: TOKENS -->
+  <section id="tab-tokens" class="tab" style="display:none">
+    <div class="card">
+      <h3>Verified Tokens (dari Fomo)</h3>
+      <div id="tokens"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const H = {
+  json(r){ if(!r.ok) throw new Error(r.status+' '+r.statusText); return r.json(); },
+  base(){ return document.getElementById('api').value.replace(/\/$/,''); },
+  token(){ const t=document.getElementById('token').value.trim(); return t? {Authorization: t.indexOf('Bearer')===0?t:'Bearer '+t} : {}; }
+};
+async function get(p){ const r=await fetch(H.base()+p,{headers:H.token()}); return H.json(r); }
+
+function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function sf(n){ return (n==null||isNaN(n))?0:(n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':n.toFixed(0)) }
+
+let LEADERS=[];
+function fmtAddr(u){
+  if(!u) return '<span class="mut">—</span>';
+  let s='';
+  if(u.evmAddress) s+=`<div class="addr evm">evm ${esc(u.evmAddress)}</div>`;
+  if(u.address&&u.address!==u.evmAddress) s+=`<div class="addr sol">sol ${esc(u.address)}</div>`;
+  if(u.userHandle) s+=`<div class="addr">@${esc(u.userHandle)}</div>`;
+  const a=u.address||u.evmAddress||'';
+  if(a) s+=`<div class="addr">${esc(a.slice(0,8))}…${esc(a.slice(-4))}</div>`;
+  return s;
+}
+
+async function loadLeaders(){
+  const d=await get('/leaderboard?period=24h');
+  LEADERS=(d.responseObject?.leaderboard)||[];
+  const rows=LEADERS.map(u=>`<tr>
+    <td><span class="clk" onclick="openKol(${JSON.stringify(u.id)},'${esc(u.displayName||u.userHandle||'')}')">${esc(u.displayName||u.userHandle||'?')}</span><br><span class="mut">@${esc(u.userHandle||'')}</span></td>
+    <td>${u.pnl24h?`<span class="v">${sf(u.pnl24h)}</span>`:'—'}</td>
+    <td>${u.numTrades||0}</td>
+    <td>${u.followers||0}</td>
+    <td>${u.verified?'<span class="chip v">✓</span>':''}</td>
+    <td>${fmtAddr(u)}</td></tr>`).join('');
+  document.getElementById('leaders').innerHTML=`<table><thead><tr><th>KOL</th><th>PnL 24h</th><th>Trades</th><th>Followers</th><th>Ok</th><th>Wallet</th></tr></thead><tbody>${rows}</tbody></table>`;
+  // isi dropdown KOL utk tab socials
+  const sel=document.getElementById('kol');
+  sel.innerHTML='<option value="">— pilih KOL —</option>'+LEADERS.map(u=>`<option value="${u.id}">${esc(u.displayName||u.userHandle)} (@${esc(u.userHandle)})</option>`).join('');
+}
+
+async function openKol(id,name){
+  showTab('soc');
+  document.getElementById('kol').value=id;
+  loadSocials(id,name);
+}
+
+async function loadSocials(id,name){
+  const cur=document.getElementById('soc-following');
+  const cuf=document.getElementById('soc-followers');
+  cur.innerHTML='<span class="mut">memuat…</span>'; cuf.innerHTML='<span class="mut">memuat…</span>';
+  try{
+    const [fing, fers] = await Promise.all([
+      get('/following-list?userId='+id+'&pageSize=100'),
+      get('/followers-list?userId='+id+'&pageSize=100')
+    ]);
+    const fg=fing.responseObject?.users||[], fs=fers.responseObject?.users||[];
+    const row=(arr)=>arr.map(u=>`<tr><td>${esc(u.displayName||u.userHandle||'?')}<br><span class="mut">@${esc(u.userHandle||'')}</span></td><td>${fmtAddr(u)}</td></tr>`).join('')||'<tr><td><span class="mut">kosong</span></td></tr>';
+    cur.innerHTML=`<table><thead><tr><th>KOL</th><th>Wallet</th></tr></thead><tbody>${row(fg)}</tbody></table><div class="mut">(${fg.length} following)</div>`;
+    cuf.innerHTML=`<table><thead><tr><th>KOL</th><th>Wallet</th></tr></thead><tbody>${row(fs)}</tbody></table><div class="mut">(${fs.length} followers)</div>`;
+  }catch(e){ cur.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
+
+async function loadTokens(){
+  const d=await get('/tokens');
+  const arr=d.responseObject||[];
+  document.getElementById('tokens').innerHTML=`<table><thead><tr><th>Token</th><th>MC</th><th>24h %</th><th>Vol</th><th>Chain</th></tr></thead><tbody>`+
+    arr.slice(0,150).map(t=>`<tr><td>${esc(t.symbol||t.name||'?')}</td><td>${sf(t.marketCap)}</td><td>${t.change24?(t.change24*100).toFixed(2)+'%':'—'}</td><td>${sf(t.volume24??t.volume)}</td><td>${esc(t.chain||t.blockchain||'')}</td></tr>`).join('')+`</tbody></table>`;
+}
+
+function showTab(t){
+  ['leaders','soc','tokens'].forEach(x=>{
+    document.getElementById('tab-'+x).style.display = x===t?'block':'none';
+    document.getElementById('tab-'+x).classList.toggle('on',x===t);
+  });
+}
+
+async function loadAll(){ loadLeaders(); loadTokens(); }
+document.getElementById('kol').addEventListener('change',e=>{ if(e.target.value) loadSocials(e.target.value); });
+loadAll();
+</script>
+</body>
+</html>
