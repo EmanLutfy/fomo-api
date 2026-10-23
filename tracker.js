@@ -28,8 +28,18 @@ const POLL_MS = Number(process.env.POLL_MS || 2000); // min gap antara request
 const BASE = 'https://prod-api.fomo.family';
 
 let privyToken = null;
-const wait = ms => new Promise(r => setTimeout(r, ms));
-async function getJSON(u){ return (await fetch(u)).json(); }
+// Helper tunggu — bentuk penuh supaya mudah dibaca & diubah
+function wait(ms){
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// Ambil dan parse JSON dari satu URL
+async function getJSON(u){
+  const response = await fetch(u);
+  return response.json();
+}
 
 // --- ambil privy-token dari Chrome yang login ---
 async function fetchToken(){
